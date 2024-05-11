@@ -1,53 +1,74 @@
 #include <stdio.h>
-#include <unistd.h> // voor sleep()
-#include <string.h> // voor memcpy()
-#include <stdlib.h> // voor atoi()
+#include <stdlib.h>
+#include <unistd.h>
 #include "ethercat.h"
+
+// Declare IOmap as a global variable
+uint8_t IOmap[4096];  // Adjust the size according to your needs
 
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        fprintf(stderr, "Gebruik: %s <netwerkinterface> <slaveindex>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <network_interface> <slave_index>\n", argv[0]);
         return 1;
     }
 
-    char* netif = argv[1];
-    int slaveIndex = atoi(argv[2]); // converteer string naar integer
-
-    // Initialiseren van SOEM, starten van de EtherCAT master
-    if (!ec_init(netif)) {
-        fprintf(stderr, "Fout bij het initialiseren van de EtherCAT master op %s\n", netif);
+    int slave_index = atoi(argv[2]);
+    if (slave_index < 1) {
+        fprintf(stderr, "Invalid slave index: %d\n", slave_index);
         return 1;
     }
 
-    printf("EtherCAT initialisatie op %s succesvol.\n", netif);
+    if (!ec_init(argv[1])) {
+        fprintf(stderr, "Error initializing the EtherCAT master on %s\n", argv[1]);
+        return 1;
+    }
 
-    // Zoeken en configureren van alle slaves
+    printf("EtherCAT initialization on %s succeeded.\n", argv[1]);
+
     if (ec_config_init(FALSE) <= 0) {
-        fprintf(stderr, "Geen slaves gevonden of fout bij het configureren van slaves.\n");
+        fprintf(stderr, "No slaves found or configuration failed.\n");
         ec_close();
         return 1;
     }
 
-    // Wachten totdat alle slaves in OPERATIONAL staat zijn
-    ec_statecheck(0, EC_STATE_OPERATIONAL, EC_TIMEOUTSTATE);
+    printf("%d slaves found and configured.\n", ec_slavecount);
 
-    printf("Slaves geconfigureerd en in operationele staat.\n");
-    
-    // Leesproces starten
+    ec_config_map(&IOmap);
+    ec_configdc();
+
+    printf("Slaves mapped and configured for DC.\n");
+
+    ec_statecheck(0, EC_STATE_SAFE_OP, EC_TIMEOUTSTATE * 4);
+
+    ec_slave[0].state = EC_STATE_OPERATIONAL;
+    ec_writestate(0);
+
+    while (ec_statecheck(0, EC_STATE_OPERATIONAL, EC_TIMEOUTSTATE) != EC_STATE_OPERATIONAL) {
+        fprintf(stderr, "Slaves not in operational state.\n");
+        sleep(1);
+    }
+
+    printf("Operational state reached for all slaves.\n");
+
     while (1) {
         ec_send_processdata();
         ec_receive_processdata(EC_TIMEOUTRET);
 
-        // Aanname: de slave data is een eenvoudige integer
-        int data;
-        memcpy(&data, ec_slave[slaveIndex].inputs, sizeof(int));
+        if (slave_index > ec_slavecount) {
+            fprintf(stderr, "Slave index out of range. Only %d slaves available.\n", ec_slavecount);
+            break;
+        }
 
-        printf("Data van slave %d: %d\n", slaveIndex, data);
+        // Assuming EL1008 starts at position 0 in the input bytes
+        uint8_t inputs = *(ec_slave[slave_index].inputs);
+        
+        for (int i = 0; i < 8; ++i) { // For each bit in the byte
+            printf("Input %d: %s\n", i+1, (inputs & (1 << i)) ? "true" : "false");
+        }
 
-        sleep(1);  // Wacht 1 seconde
+        sleep(1);  // Wait 1 second
     }
 
-    // EtherCAT communicatie stoppen
     ec_close();
     return 0;
 }
