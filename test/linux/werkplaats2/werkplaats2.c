@@ -7,14 +7,20 @@
 uint8_t IOmap[4096];  // Adjust the size according to your needs
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s <network_interface> <slave_index>\n", argv[0]);
+    if (argc < 4) {
+        fprintf(stderr, "Usage: %s <network_interface> <slave_index> <channel_id>\n", argv[0]);
         return 1;
     }
 
     int slave_index = atoi(argv[2]);
     if (slave_index < 1) {
         fprintf(stderr, "Invalid slave index: %d\n", slave_index);
+        return 1;
+    }
+
+    int channel_index = atoi(argv[3]);
+    if (channel_index < 1 || channel_index > 8) {
+        fprintf(stderr, "Invalid channel index: %d\n", channel_index);
         return 1;
     }
 
@@ -62,9 +68,7 @@ int main(int argc, char *argv[]) {
         // Assuming EL1008 starts at position 0 in the input bytes
         uint8_t inputs = *(ec_slave[slave_index].inputs);
         
-        for (int i = 0; i < 8; ++i) { // For each bit in the byte
-            printf("Input %d: %s\n", i+1, (inputs & (1 << i)) ? "true" : "false");
-        }
+        printf("Input: %s\n", (inputs & (1 << (channel_index - 1))) ? "true" : "false");
 
         sleep(1);  // Wait 1 second
     }
